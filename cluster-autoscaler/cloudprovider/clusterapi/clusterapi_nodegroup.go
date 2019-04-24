@@ -28,9 +28,13 @@ import (
 )
 
 const (
-	machineDeleteAnnotationKey = "cluster.k8s.io/cluster-api-delete-machine"
-	machineAnnotationKey       = "cluster.k8s.io/machine"
-	debugFormat                = "%s (min: %d, max: %d, replicas: %d)"
+	// TODO(frobware): would prefer to use:
+	//   sigs.k8s.io/cluster-api/pkg/controller/machineset.DeleteNodeAnnotation
+	// but that brings in conflicting dependencies right now.
+	machineDeleteAnnotationKey = "cluster.k8s.io/delete-machine"
+
+	machineAnnotationKey = "cluster.k8s.io/machine"
+	debugFormat          = "%s (min: %d, max: %d, replicas: %d)"
 )
 
 type nodegroup struct {
