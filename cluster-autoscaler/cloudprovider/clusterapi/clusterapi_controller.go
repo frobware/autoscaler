@@ -19,7 +19,7 @@ package clusterapi
 import (
 	"fmt"
 
-	apiv1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	kubeinformers "k8s.io/client-go/informers"
@@ -53,7 +53,7 @@ type machineController struct {
 type machineSetFilterFunc func(machineSet *v1alpha1.MachineSet) error
 
 func indexNodeByNodeProviderID(obj interface{}) ([]string, error) {
-	if node, ok := obj.(*apiv1.Node); ok {
+	if node, ok := obj.(*corev1.Node); ok {
 		return []string{node.Spec.ProviderID}, nil
 	}
 	return []string{}, nil
@@ -147,7 +147,7 @@ func (c *machineController) run(stopCh <-chan struct{}) error {
 // node.Spec.ProviderID as the key. Returns nil if either the Node by
 // node.Spec.ProviderID cannot be found or if the node has no machine
 // annotation. A DeepCopy() of the object is returned on success.
-func (c *machineController) findMachineByNodeProviderID(node *apiv1.Node) (*v1alpha1.Machine, error) {
+func (c *machineController) findMachineByNodeProviderID(node *corev1.Node) (*v1alpha1.Machine, error) {
 	objs, err := c.nodeInformer.GetIndexer().ByIndex(nodeProviderIDIndex, node.Spec.ProviderID)
 	if err != nil {
 		return nil, err
@@ -160,7 +160,7 @@ func (c *machineController) findMachineByNodeProviderID(node *apiv1.Node) (*v1al
 		return nil, fmt.Errorf("internal error; expected len==1, got %v", n)
 	}
 
-	node, ok := objs[0].(*apiv1.Node)
+	node, ok := objs[0].(*corev1.Node)
 	if !ok {
 		return nil, fmt.Errorf("internal error; unexpected type %T", node)
 	}
@@ -175,7 +175,7 @@ func (c *machineController) findMachineByNodeProviderID(node *apiv1.Node) (*v1al
 // findNodeByNodeName find the Node object keyed by node.Name. Returns
 // nil if it cannot be found. A DeepCopy() of the object is returned
 // on success.
-func (c *machineController) findNodeByNodeName(name string) (*apiv1.Node, error) {
+func (c *machineController) findNodeByNodeName(name string) (*corev1.Node, error) {
 	item, exists, err := c.nodeInformer.GetIndexer().GetByKey(name)
 	if err != nil {
 		return nil, err
@@ -185,7 +185,7 @@ func (c *machineController) findNodeByNodeName(name string) (*apiv1.Node, error)
 		return nil, nil
 	}
 
-	node, ok := item.(*apiv1.Node)
+	node, ok := item.(*corev1.Node)
 	if !ok {
 		return nil, fmt.Errorf("internal error; unexpected type %T", node)
 	}
@@ -327,7 +327,7 @@ func (c *machineController) machineSetNodeGroups() ([]*nodegroup, error) {
 }
 
 func (c *machineController) machineDeploymentNodeGroups() ([]*nodegroup, error) {
-	machineDeployments, err := c.machineDeploymentInformer.Lister().MachineDeployments(apiv1.NamespaceAll).List(labels.Everything())
+	machineDeployments, err := c.machineDeploymentInformer.Lister().MachineDeployments(corev1.NamespaceAll).List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +361,7 @@ func (c *machineController) nodeGroups() ([]*nodegroup, error) {
 	return append(machineSets, machineDeployments...), nil
 }
 
-func (c *machineController) nodeGroupForNode(node *apiv1.Node) (*nodegroup, error) {
+func (c *machineController) nodeGroupForNode(node *corev1.Node) (*nodegroup, error) {
 	machine, err := c.findMachineByNodeProviderID(node)
 	if err != nil {
 		return nil, err

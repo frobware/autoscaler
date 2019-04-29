@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	apiv1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
 	"sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
@@ -89,7 +89,7 @@ func (ng *nodegroup) IncreaseSize(delta int) error {
 // either on failure or if the given node doesn't belong to this node
 // group. This function should wait until node group size is updated.
 // Implementation required.
-func (ng *nodegroup) DeleteNodes(nodes []*apiv1.Node) error {
+func (ng *nodegroup) DeleteNodes(nodes []*corev1.Node) error {
 	for _, node := range nodes {
 		actualNodeGroup, err := ng.machineController.nodeGroupForNode(node)
 		if err != nil {
