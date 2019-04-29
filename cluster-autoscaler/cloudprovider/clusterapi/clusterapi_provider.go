@@ -134,26 +134,21 @@ func newProvider(
 // BuildClusterAPI builds CloudProvider implementation for machine api.
 func BuildClusterAPI(opts config.AutoscalingOptions, do cloudprovider.NodeGroupDiscoveryOptions, rl *cloudprovider.ResourceLimiter) cloudprovider.CloudProvider {
 	var err error
-	var externalConfig *rest.Config
-
-	externalConfig, err = rest.InClusterConfig()
-	if err != nil && err != rest.ErrNotInCluster {
-		klog.Fatal(err)
-	}
+	var config *rest.Config
 
 	if opts.KubeConfigPath != "" {
-		externalConfig, err = clientcmd.BuildConfigFromFlags("", opts.KubeConfigPath)
+		config, err = clientcmd.BuildConfigFromFlags("", opts.KubeConfigPath)
 		if err != nil {
 			klog.Fatalf("cannot build config: %v", err)
 		}
 	}
 
-	kubeclient, err := kubernetes.NewForConfig(externalConfig)
+	kubeclient, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		klog.Fatalf("create kube clientset failed: %v", err)
 	}
 
-	clusterclient, err := clusterclientset.NewForConfig(externalConfig)
+	clusterclient, err := clusterclientset.NewForConfig(config)
 	if err != nil {
 		klog.Fatalf("create cluster clientset failed: %v", err)
 	}
