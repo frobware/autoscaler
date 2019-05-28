@@ -136,11 +136,9 @@ func BuildClusterAPI(opts config.AutoscalingOptions, do cloudprovider.NodeGroupD
 	var err error
 	var config *rest.Config
 
-	if opts.KubeConfigPath != "" {
-		config, err = clientcmd.BuildConfigFromFlags("", opts.KubeConfigPath)
-		if err != nil {
-			klog.Fatalf("cannot build config: %v", err)
-		}
+	config, err = clientcmd.BuildConfigFromFlags("", opts.KubeConfigPath)
+	if err != nil {
+		klog.Fatalf("cannot build config: %v", err)
 	}
 
 	kubeclient, err := kubernetes.NewForConfig(config)
