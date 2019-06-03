@@ -100,7 +100,7 @@ func (ng *nodegroup) DeleteNodes(nodes []*corev1.Node) error {
 			return fmt.Errorf("node %q doesn't belong to node group %q", node.Spec.ProviderID, ng.Id())
 		}
 
-		machine, err := ng.machineController.findMachineByNodeProviderID(node)
+		machine, err := ng.machineController.findMachineByProviderID(node.Spec.ProviderID)
 		if err != nil {
 			return err
 		}
