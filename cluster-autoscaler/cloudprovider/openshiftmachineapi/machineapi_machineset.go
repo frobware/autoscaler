@@ -22,7 +22,10 @@ import (
 
 	"github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/typed/machine/v1beta1"
+	apiv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/utils/pointer"
 )
 
@@ -78,6 +81,37 @@ func (r machineSetScalableResource) SetSize(nreplicas int32) error {
 		return fmt.Errorf("unable to update number of replicas of machineset %q: %v", r.ID(), err)
 	}
 	return nil
+}
+
+func (r machineSetScalableResource) Labels() map[string]string {
+	return cloudprovider.JoinStringMaps(r.machineSet.Labels, r.machineSet.Spec.Template.Labels, r.machineSet.Spec.Template.Spec.Labels)
+}
+
+func (r machineSetScalableResource) Taints() []apiv1.Taint {
+	return r.machineSet.Spec.Template.Spec.Taints
+}
+
+func (r machineSetScalableResource) CanScaleFromZero() bool {
+	return scaleFromZeroEnabled(r.machineSet.Annotations)
+}
+
+func (r machineSetScalableResource) Capacity() (apiv1.ResourceList, error) {
+	cpu, mem, pods, err := parseCapacityValues(r.machineSet.Annotations)
+	if err != nil {
+		return nil, err
+	}
+
+	// all three are required to represent a valid ResourceList
+	// suitable for scaling from zero.
+	if mem == nil || cpu == nil || pods == nil {
+		return nil, nil
+	}
+
+	return map[apiv1.ResourceName]resource.Quantity{
+		apiv1.ResourcePods:   *pods,
+		apiv1.ResourceCPU:    *cpu,
+		apiv1.ResourceMemory: *mem,
+	}, nil
 }
 
 func newMachineSetScalableResource(controller *machineController, machineSet *v1beta1.MachineSet) (*machineSetScalableResource, error) {

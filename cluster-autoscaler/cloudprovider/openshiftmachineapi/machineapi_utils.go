@@ -21,12 +21,17 @@ import (
 
 	"github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	nodeGroupMinSizeAnnotationKey = "machine.openshift.io/cluster-api-autoscaler-node-group-min-size"
-	nodeGroupMaxSizeAnnotationKey = "machine.openshift.io/cluster-api-autoscaler-node-group-max-size"
+	nodeGroupInstanceCPUCapacity    = "machine.openshift.io/instance-cpu-capacity"
+	nodeGroupInstanceMemoryCapacity = "machine.openshift.io/instance-memory-capacity"
+	nodeGroupInstancePodCapacity    = "machine.openshift.io/instance-pod-capacity"
+	nodeGroupMaxSizeAnnotationKey   = "machine.openshift.io/cluster-api-autoscaler-node-group-max-size"
+	nodeGroupMinSizeAnnotationKey   = "machine.openshift.io/cluster-api-autoscaler-node-group-min-size"
+	nodeGroupScaleFromZero          = "machine.openshift.io/scale-from-zero"
 )
 
 var (
@@ -143,4 +148,60 @@ func machineSetIsOwnedByMachineDeployment(machineSet *v1beta1.MachineSet, machin
 		return ref.UID == machineDeployment.UID
 	}
 	return false
+}
+
+func scaleFromZeroEnabled(annotations map[string]string) bool {
+	return annotations[nodeGroupScaleFromZero] == "true"
+}
+
+func parseCPUCapacity(annotations map[string]string) (*resource.Quantity, error) {
+	if val, exists := annotations[nodeGroupInstanceCPUCapacity]; exists && val != "" {
+		q, err := resource.ParseQuantity(val)
+		if err != nil {
+			return nil, err
+		}
+		return &q, nil
+	}
+	return nil, nil
+}
+
+func parseMemoryCapacity(annotations map[string]string) (*resource.Quantity, error) {
+	if val, exists := annotations[nodeGroupInstanceMemoryCapacity]; exists && val != "" {
+		q, err := resource.ParseQuantity(val)
+		if err != nil {
+			return nil, err
+		}
+		return &q, nil
+	}
+	return nil, nil
+}
+
+func parsePodCapacity(annotations map[string]string) (*resource.Quantity, error) {
+	if val, exists := annotations[nodeGroupInstancePodCapacity]; exists && val != "" {
+		q, err := resource.ParseQuantity(val)
+		if err != nil {
+			return nil, err
+		}
+		return &q, nil
+	}
+	return nil, nil
+}
+
+func parseCapacityValues(annotations map[string]string) (cpu, mem, pods *resource.Quantity, err error) {
+	mem, err = parseMemoryCapacity(annotations)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	cpu, err = parseCPUCapacity(annotations)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	pods, err = parsePodCapacity(annotations)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return cpu, mem, pods, nil
 }

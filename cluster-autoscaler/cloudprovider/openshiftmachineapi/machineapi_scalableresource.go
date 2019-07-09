@@ -16,6 +16,10 @@ limitations under the License.
 
 package openshiftmachineapi
 
+import (
+	apiv1 "k8s.io/api/core/v1"
+)
+
 // scalableResource is a resource that can be scaled up and down by
 // adjusting its replica count field.
 type scalableResource interface {
@@ -43,4 +47,12 @@ type scalableResource interface {
 
 	// Replicas returns the current replica count of the resource
 	Replicas() int32
+
+	Labels() map[string]string
+
+	Taints() []apiv1.Taint
+
+	CanScaleFromZero() bool
+
+	Capacity() (apiv1.ResourceList, error)
 }

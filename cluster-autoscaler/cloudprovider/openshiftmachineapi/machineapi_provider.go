@@ -78,6 +78,7 @@ func (p *provider) NodeGroupForNode(node *apiv1.Node) (cloudprovider.NodeGroup, 
 
 func (*provider) Pricing() (cloudprovider.PricingModel, errors.AutoscalerError) {
 	return nil, cloudprovider.ErrNotImplemented
+
 }
 
 func (*provider) GetAvailableMachineTypes() ([]string, error) {
