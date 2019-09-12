@@ -19,7 +19,6 @@ package u
 import (
 	"fmt"
 
-	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/typed/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
@@ -32,7 +31,6 @@ const (
 )
 
 type nodegroup struct {
-	machineapiClient  machinev1beta1.MachineV1beta1Interface
 	machineController *machineController
 	scalableResource  scalableResource
 }
@@ -237,7 +235,6 @@ func newNodegroupFromMachineSet(controller *machineController, machineSet *Machi
 		return nil, err
 	}
 	return &nodegroup{
-		machineapiClient:  controller.clusterClientset.MachineV1beta1(),
 		machineController: controller,
 		scalableResource:  scalableResource,
 	}, nil
@@ -249,7 +246,6 @@ func newNodegroupFromMachineDeployment(controller *machineController, machineDep
 		return nil, err
 	}
 	return &nodegroup{
-		machineapiClient:  controller.clusterClientset.MachineV1beta1(),
 		machineController: controller,
 		scalableResource:  scalableResource,
 	}, nil

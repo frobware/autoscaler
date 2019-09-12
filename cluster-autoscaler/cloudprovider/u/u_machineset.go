@@ -21,18 +21,16 @@ import (
 	"path"
 	"time"
 
-	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/typed/machine/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/pointer"
 )
 
 type machineSetScalableResource struct {
-	machineapiClient machinev1beta1.MachineV1beta1Interface
-	controller       *machineController
-	machineSet       *MachineSet
-	maxSize          int
-	minSize          int
+	controller *machineController
+	machineSet *MachineSet
+	maxSize    int
+	minSize    int
 }
 
 var _ scalableResource = (*machineSetScalableResource)(nil)
@@ -94,10 +92,6 @@ func (r machineSetScalableResource) MarkMachineForDeletion(machine *Machine) err
 	if u == nil {
 		return fmt.Errorf("unknown machine %s", machine.Name)
 	}
-	// obj, err := r.controller.machineInformer.Lister().ByNamespace(machine.Namespace).Get(machine.Name)
-	// if err != nil {
-	// 	return err
-	// }
 
 	u = u.DeepCopy()
 
@@ -119,10 +113,9 @@ func newMachineSetScalableResource(controller *machineController, machineSet *Ma
 	}
 
 	return &machineSetScalableResource{
-		machineapiClient: controller.clusterClientset.MachineV1beta1(),
-		controller:       controller,
-		machineSet:       machineSet,
-		maxSize:          maxSize,
-		minSize:          minSize,
+		controller: controller,
+		machineSet: machineSet,
+		maxSize:    maxSize,
+		minSize:    minSize,
 	}, nil
 }

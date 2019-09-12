@@ -59,6 +59,7 @@ type machineController struct {
 	dynamicclient             dynamic.Interface
 	machineSetResource        *schema.GroupVersionResource
 	machineResource           *schema.GroupVersionResource
+	machineDeploymentResource *schema.GroupVersionResource
 }
 
 type machineSetFilterFunc func(machineSet *MachineSet) error
@@ -351,6 +352,7 @@ func newMachineController(
 		dynamicclient:             dynamicclient,
 		machineSetResource:        machineSetResource,
 		machineResource:           machineResource,
+		machineDeploymentResource: machineDeploymentResource,
 	}, nil
 }
 

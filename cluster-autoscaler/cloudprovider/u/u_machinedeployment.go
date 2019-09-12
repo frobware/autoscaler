@@ -19,14 +19,14 @@ package u
 import (
 	"fmt"
 	"path"
+	"time"
 
-	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/typed/machine/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/pointer"
 )
 
 type machineDeploymentScalableResource struct {
-	machineapiClient  machinev1beta1.MachineV1beta1Interface
 	controller        *machineController
 	machineDeployment *MachineDeployment
 	maxSize           int
@@ -79,23 +79,46 @@ func (r machineDeploymentScalableResource) Replicas() int32 {
 }
 
 func (r machineDeploymentScalableResource) SetSize(nreplicas int32) error {
-	machineDeployment, err := r.machineapiClient.MachineDeployments(r.Namespace()).Get(r.Name(), metav1.GetOptions{})
+	u, err := r.controller.dynamicclient.Resource(*r.controller.machineDeploymentResource).Namespace(r.machineDeployment.Namespace).Get(r.machineDeployment.Name, metav1.GetOptions{})
+
 	if err != nil {
-		return fmt.Errorf("unable to get MachineDeployment %q: %v", r.ID(), err)
+		return err
 	}
 
-	machineDeployment = machineDeployment.DeepCopy()
-	machineDeployment.Spec.Replicas = &nreplicas
-
-	_, err = r.machineapiClient.MachineDeployments(r.Namespace()).Update(machineDeployment)
-	if err != nil {
-		return fmt.Errorf("unable to update number of replicas of machineDeployment %q: %v", r.ID(), err)
+	if u == nil {
+		return fmt.Errorf("unknown machineDeployment %s", r.machineDeployment.Name)
 	}
-	return nil
+
+	u = u.DeepCopy()
+	if err := unstructured.SetNestedField(u.Object, int64(nreplicas), "spec", "replicas"); err != nil {
+		return fmt.Errorf("failed to set replica value: %v", err)
+	}
+
+	_, updateErr := r.controller.dynamicclient.Resource(*r.controller.machineDeploymentResource).Namespace(u.GetNamespace()).Update(u, metav1.UpdateOptions{})
+	return updateErr
 }
 
 func (r machineDeploymentScalableResource) MarkMachineForDeletion(machine *Machine) error {
-	return fmt.Errorf("TODO")
+	u, err := r.controller.dynamicclient.Resource(*r.controller.machineResource).Namespace(machine.Namespace).Get(machine.Name, metav1.GetOptions{})
+
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return fmt.Errorf("unknown machine %s", machine.Name)
+	}
+
+	u = u.DeepCopy()
+
+	annotations := u.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[machineDeleteAnnotationKey] = time.Now().String()
+	u.SetAnnotations(annotations)
+
+	_, updateErr := r.controller.dynamicclient.Resource(*r.controller.machineResource).Namespace(u.GetNamespace()).Update(u, metav1.UpdateOptions{})
+	return updateErr
 }
 
 func newMachineDeploymentScalableResource(controller *machineController, machineDeployment *MachineDeployment) (*machineDeploymentScalableResource, error) {
@@ -105,7 +128,6 @@ func newMachineDeploymentScalableResource(controller *machineController, machine
 	}
 
 	return &machineDeploymentScalableResource{
-		machineapiClient:  controller.clusterClientset.MachineV1beta1(),
 		controller:        controller,
 		machineDeployment: machineDeployment,
 		maxSize:           maxSize,
