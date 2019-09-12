@@ -25,6 +25,7 @@ import (
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/errors"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
@@ -59,7 +60,7 @@ func (p *provider) NodeGroups() []cloudprovider.NodeGroup {
 		return nil
 	}
 	for _, ng := range nodegroups {
-		klog.V(4).Infof("discovered node group: %s", ng.Debug())
+		klog.V(2).Infof("discovered node group: %s", ng.Debug())
 		result = append(result, ng)
 	}
 	return result
@@ -126,6 +127,12 @@ func BuildOpenShiftMachineAPI(opts config.AutoscalingOptions, do cloudprovider.N
 		klog.Fatalf("cannot build config: %v", err)
 	}
 
+	// Grab a dynamic interface that we can create informers from
+	dc, err := dynamic.NewForConfig(externalConfig)
+	if err != nil {
+		klog.Fatalf("could not generate dynamic client for config")
+	}
+
 	kubeclient, err := kubernetes.NewForConfig(externalConfig)
 	if err != nil {
 		klog.Fatalf("create kube clientset failed: %v", err)
@@ -137,7 +144,7 @@ func BuildOpenShiftMachineAPI(opts config.AutoscalingOptions, do cloudprovider.N
 	}
 
 	enableMachineDeployments := false
-	controller, err := newMachineController(kubeclient, clusterclient, enableMachineDeployments)
+	controller, err := newMachineController(dc, kubeclient, clusterclient, enableMachineDeployments)
 
 	if err != nil {
 		klog.Fatal(err)

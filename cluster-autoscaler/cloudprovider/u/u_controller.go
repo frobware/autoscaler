@@ -18,13 +18,19 @@ package u
 
 import (
 	"fmt"
+	"time"
 
 	clusterclient "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset"
-	clusterinformers "github.com/openshift/cluster-api/pkg/client/informers_generated/externalversions"
-	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/informers_generated/externalversions/machine/v1beta1"
+	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/dynamic/dynamicinformer"
+	"k8s.io/client-go/informers"
 	kubeinformers "k8s.io/client-go/informers"
 	kubeclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -43,25 +49,33 @@ const (
 // satisfy lookup by node.Spec.ProviderID.
 type machineController struct {
 	clusterClientset          clusterclient.Interface
-	clusterInformerFactory    clusterinformers.SharedInformerFactory
 	kubeInformerFactory       kubeinformers.SharedInformerFactory
-	machineDeploymentInformer machinev1beta1.MachineDeploymentInformer
-	machineInformer           machinev1beta1.MachineInformer
-	machineSetInformer        machinev1beta1.MachineSetInformer
+	machineInformerFactory    dynamicinformer.DynamicSharedInformerFactory
+	machineDeploymentInformer informers.GenericInformer
+	machineInformer           informers.GenericInformer
+	machineSetInformer        informers.GenericInformer
 	nodeInformer              cache.SharedIndexInformer
 	enableMachineDeployments  bool
+	dynamicclient             dynamic.Interface
 }
 
 type machineSetFilterFunc func(machineSet *MachineSet) error
 
 func indexMachineByProviderID(obj interface{}) ([]string, error) {
-	if machine, ok := obj.(*Machine); ok {
-		if machine.Spec.ProviderID != nil && *machine.Spec.ProviderID != "" {
-			return []string{*machine.Spec.ProviderID}, nil
-		}
-		return []string{}, nil
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return nil, nil
 	}
-	return []string{}, nil
+
+	providerID, found, err := unstructured.NestedString(u.Object, "spec", "providerID")
+	if err != nil || !found {
+		return nil, nil
+	}
+	if providerID == "" {
+		return nil, nil
+	}
+
+	return []string{providerID}, nil
 }
 
 func indexNodeByProviderID(obj interface{}) ([]string, error) {
@@ -84,9 +98,14 @@ func (c *machineController) findMachine(id string) (*Machine, error) {
 		return nil, nil
 	}
 
-	machine, ok := item.(*Machine)
+	u, ok := item.(*unstructured.Unstructured)
 	if !ok {
-		return nil, fmt.Errorf("internal error; unexpected type %T", machine)
+		return nil, fmt.Errorf("internal error; unexpected type: %T", item)
+	}
+
+	machine := newMachineFromUnstructured(u)
+	if machine == nil {
+		return nil, nil
 	}
 
 	return machine.DeepCopy(), nil
@@ -104,7 +123,7 @@ func (c *machineController) findMachineDeployment(id string) (*MachineDeployment
 
 	machineDeployment, ok := item.(*MachineDeployment)
 	if !ok {
-		return nil, fmt.Errorf("internal error; unexpected type %T", machineDeployment)
+		return nil, fmt.Errorf("internal error; unexpected type %T", item)
 	}
 
 	return machineDeployment.DeepCopy(), nil
@@ -128,9 +147,14 @@ func (c *machineController) findMachineOwner(machine *Machine) (*MachineSet, err
 		return nil, nil
 	}
 
-	machineSet, ok := item.(*MachineSet)
+	u, ok := item.(*unstructured.Unstructured)
 	if !ok {
-		return nil, fmt.Errorf("internal error; unexpected type: %T", machineSet)
+		return nil, fmt.Errorf("internal error; unexpected type: %T", item)
+	}
+
+	machineSet := newMachineSetFromUnstructured(u)
+	if machineSet == nil {
+		return nil, nil
 	}
 
 	if !machineIsOwnedByMachineSet(machine, machineSet) {
@@ -144,7 +168,7 @@ func (c *machineController) findMachineOwner(machine *Machine) (*MachineSet, err
 // synchronize.
 func (c *machineController) run(stopCh <-chan struct{}) error {
 	c.kubeInformerFactory.Start(stopCh)
-	c.clusterInformerFactory.Start(stopCh)
+	c.machineInformerFactory.Start(stopCh)
 
 	syncFuncs := []cache.InformerSynced{
 		c.nodeInformer.HasSynced,
@@ -164,6 +188,368 @@ func (c *machineController) run(stopCh <-chan struct{}) error {
 	return nil
 }
 
+func newMachineSetFromUnstructured(u *unstructured.Unstructured) *MachineSet {
+	machineSet := MachineSet{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       u.GetKind(),
+			APIVersion: u.GetAPIVersion(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            u.GetName(),
+			GenerateName:    "",
+			Namespace:       u.GetNamespace(),
+			SelfLink:        "",
+			UID:             u.GetUID(),
+			ResourceVersion: "",
+			Generation:      0,
+			CreationTimestamp: metav1.Time{
+				Time: time.Time{},
+			},
+			DeletionTimestamp: &metav1.Time{
+				Time: time.Time{},
+			},
+			DeletionGracePeriodSeconds: nil,
+			Labels:                     u.GetLabels(),
+			Annotations:                u.GetAnnotations(),
+			OwnerReferences:            u.GetOwnerReferences(),
+			Initializers: &metav1.Initializers{
+				Pending: nil,
+				Result: &metav1.Status{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "",
+						APIVersion: "",
+					},
+					ListMeta: metav1.ListMeta{
+						SelfLink:        "",
+						ResourceVersion: "",
+						Continue:        "",
+					},
+					Status:  "",
+					Message: "",
+					Reason:  "",
+					Details: &metav1.StatusDetails{
+						Name:              "",
+						Group:             "",
+						Kind:              "",
+						UID:               "",
+						Causes:            nil,
+						RetryAfterSeconds: 0,
+					},
+					Code: 0,
+				},
+			},
+			Finalizers:    nil,
+			ClusterName:   "",
+			ManagedFields: nil,
+		},
+		Spec: MachineSetSpec{
+			Replicas:        nil,
+			MinReadySeconds: 0,
+			Selector: metav1.LabelSelector{
+				MatchLabels:      nil,
+				MatchExpressions: nil,
+			},
+			Template: MachineTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "",
+					GenerateName:    "",
+					Namespace:       "",
+					SelfLink:        "",
+					UID:             "",
+					ResourceVersion: "",
+					Generation:      0,
+					CreationTimestamp: metav1.Time{
+						Time: time.Time{},
+					},
+					DeletionTimestamp: &metav1.Time{
+						Time: time.Time{},
+					},
+					DeletionGracePeriodSeconds: nil,
+					Labels:                     nil,
+					Annotations:                nil,
+					OwnerReferences:            nil,
+					Initializers: &metav1.Initializers{
+						Pending: nil,
+						Result: &metav1.Status{
+							TypeMeta: metav1.TypeMeta{
+								Kind:       "",
+								APIVersion: "",
+							},
+							ListMeta: metav1.ListMeta{
+								SelfLink:        "",
+								ResourceVersion: "",
+								Continue:        "",
+							},
+							Status:  "",
+							Message: "",
+							Reason:  "",
+							Details: &metav1.StatusDetails{
+								Name:              "",
+								Group:             "",
+								Kind:              "",
+								UID:               "",
+								Causes:            nil,
+								RetryAfterSeconds: 0,
+							},
+							Code: 0,
+						},
+					},
+					Finalizers:    nil,
+					ClusterName:   "",
+					ManagedFields: nil,
+				},
+				Spec: MachineSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            "",
+						GenerateName:    "",
+						Namespace:       "",
+						SelfLink:        "",
+						UID:             "",
+						ResourceVersion: "",
+						Generation:      0,
+						CreationTimestamp: metav1.Time{
+							Time: time.Time{},
+						},
+						DeletionTimestamp: &metav1.Time{
+							Time: time.Time{},
+						},
+						DeletionGracePeriodSeconds: nil,
+						Labels:                     nil,
+						Annotations:                nil,
+						OwnerReferences:            nil,
+						Initializers: &metav1.Initializers{
+							Pending: nil,
+							Result: &metav1.Status{
+								TypeMeta: metav1.TypeMeta{
+									Kind:       "",
+									APIVersion: "",
+								},
+								ListMeta: metav1.ListMeta{
+									SelfLink:        "",
+									ResourceVersion: "",
+									Continue:        "",
+								},
+								Status:  "",
+								Message: "",
+								Reason:  "",
+								Details: &metav1.StatusDetails{
+									Name:              "",
+									Group:             "",
+									Kind:              "",
+									UID:               "",
+									Causes:            nil,
+									RetryAfterSeconds: 0,
+								},
+								Code: 0,
+							},
+						},
+						Finalizers:    nil,
+						ClusterName:   "",
+						ManagedFields: nil,
+					},
+					Taints: nil,
+					ProviderSpec: ProviderSpec{
+						Value: &runtime.RawExtension{
+							Raw:    nil,
+							Object: nil,
+						},
+					},
+					ProviderID: nil,
+				},
+			},
+		},
+		Status: MachineSetStatus{
+			Replicas:             0,
+			FullyLabeledReplicas: 0,
+			ReadyReplicas:        0,
+			AvailableReplicas:    0,
+			ObservedGeneration:   0,
+			ErrorMessage:         nil,
+		},
+	}
+
+	var replicas int64
+	var found bool
+	var err error
+
+	replicas, found, err = unstructured.NestedInt64(u.Object, "spec", "replicas")
+	if err != nil || !found {
+		return nil
+	}
+
+	machineSet.Spec.Replicas = pointer.Int32Ptr(int32(replicas))
+	return &machineSet
+}
+
+func newMachineFromUnstructured(u *unstructured.Unstructured) *Machine {
+	machine := Machine{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       u.GetKind(),
+			APIVersion: u.GetAPIVersion(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            u.GetName(),
+			GenerateName:    "",
+			Namespace:       u.GetNamespace(),
+			SelfLink:        "",
+			UID:             u.GetUID(),
+			ResourceVersion: "",
+			Generation:      0,
+			CreationTimestamp: metav1.Time{
+				Time: time.Time{},
+			},
+			DeletionTimestamp: &metav1.Time{
+				Time: time.Time{},
+			},
+			DeletionGracePeriodSeconds: nil,
+			Labels:                     u.GetLabels(),
+			Annotations:                u.GetAnnotations(),
+			OwnerReferences:            u.GetOwnerReferences(),
+			Initializers: &metav1.Initializers{
+				Pending: nil,
+				Result: &metav1.Status{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "",
+						APIVersion: "",
+					},
+					ListMeta: metav1.ListMeta{
+						SelfLink:        "",
+						ResourceVersion: "",
+						Continue:        "",
+					},
+					Status:  "",
+					Message: "",
+					Reason:  "",
+					Details: &metav1.StatusDetails{
+						Name:              "",
+						Group:             "",
+						Kind:              "",
+						UID:               "",
+						Causes:            nil,
+						RetryAfterSeconds: 0,
+					},
+					Code: 0,
+				},
+			},
+			Finalizers:    nil,
+			ClusterName:   u.GetClusterName(),
+			ManagedFields: nil,
+		},
+		Spec: MachineSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "",
+				GenerateName:    "",
+				Namespace:       "",
+				SelfLink:        "",
+				UID:             "",
+				ResourceVersion: "",
+				Generation:      0,
+				CreationTimestamp: metav1.Time{
+					Time: time.Time{},
+				},
+				DeletionTimestamp: &metav1.Time{
+					Time: time.Time{},
+				},
+				DeletionGracePeriodSeconds: nil,
+				Labels:                     nil,
+				Annotations:                nil,
+				OwnerReferences:            nil,
+				Initializers: &metav1.Initializers{
+					Pending: nil,
+					Result: &metav1.Status{
+						TypeMeta: metav1.TypeMeta{
+							Kind:       "",
+							APIVersion: "",
+						},
+						ListMeta: metav1.ListMeta{
+							SelfLink:        "",
+							ResourceVersion: "",
+							Continue:        "",
+						},
+						Status:  "",
+						Message: "",
+						Reason:  "",
+						Details: &metav1.StatusDetails{
+							Name:              "",
+							Group:             "",
+							Kind:              "",
+							UID:               "",
+							Causes:            nil,
+							RetryAfterSeconds: 0,
+						},
+						Code: 0,
+					},
+				},
+				Finalizers:    nil,
+				ClusterName:   "",
+				ManagedFields: nil,
+			},
+			Taints: nil,
+			ProviderSpec: ProviderSpec{
+				Value: &runtime.RawExtension{
+					Raw:    nil,
+					Object: nil,
+				},
+			},
+			ProviderID: nil,
+		},
+		Status: MachineStatus{
+			NodeRef: &corev1.ObjectReference{
+				Kind:            "",
+				Namespace:       "",
+				Name:            "",
+				UID:             "",
+				APIVersion:      "",
+				ResourceVersion: "",
+				FieldPath:       "",
+			},
+			LastUpdated: &metav1.Time{
+				Time: time.Time{},
+			},
+			ErrorMessage: nil,
+			ProviderStatus: &runtime.RawExtension{
+				Raw:    nil,
+				Object: nil,
+			},
+			Addresses: nil,
+			LastOperation: &LastOperation{
+				Description: nil,
+				LastUpdated: &metav1.Time{
+					Time: time.Time{},
+				},
+				State: nil,
+				Type:  nil,
+			},
+			Phase: nil,
+		},
+	}
+
+	var found bool
+	var err error
+	var strval, nodeRefKind, nodeRefName string
+
+	strval, found, err = unstructured.NestedString(u.Object, "spec", "providerID")
+	if err != nil || !found {
+		return nil
+	}
+	machine.Spec.ProviderID = pointer.StringPtr(strval)
+
+	nodeRefKind, found, err = unstructured.NestedString(u.Object, "status", "nodeRef", "kind")
+	if err != nil || !found {
+		return nil
+	}
+	nodeRefName, found, err = unstructured.NestedString(u.Object, "status", "nodeRef", "name")
+	if err != nil || !found {
+		return nil
+	}
+	machine.Status.NodeRef = &corev1.ObjectReference{
+		Kind: nodeRefKind,
+		Name: nodeRefName,
+	}
+
+	return &machine
+}
+
 // findMachineByProviderID finds machine matching providerID. A
 // DeepCopy() of the object is returned on success.
 func (c *machineController) findMachineByProviderID(providerID string) (*Machine, error) {
@@ -176,10 +562,11 @@ func (c *machineController) findMachineByProviderID(providerID string) (*Machine
 	case n > 1:
 		return nil, fmt.Errorf("internal error; expected len==1, got %v", n)
 	case n == 1:
-		machine, ok := objs[0].(*Machine)
+		u, ok := objs[0].(*unstructured.Unstructured)
 		if !ok {
-			return nil, fmt.Errorf("internal error; unexpected type %T", machine)
+			return nil, fmt.Errorf("internal error; unexpected type %T", objs[0])
 		}
+		machine := newMachineFromUnstructured(u)
 		if machine != nil {
 			return machine.DeepCopy(), nil
 		}
@@ -215,7 +602,7 @@ func (c *machineController) findNodeByNodeName(name string) (*corev1.Node, error
 
 	node, ok := item.(*corev1.Node)
 	if !ok {
-		return nil, fmt.Errorf("internal error; unexpected type %T", node)
+		return nil, fmt.Errorf("internal error; unexpected type %T", item)
 	}
 
 	return node.DeepCopy(), nil
@@ -246,33 +633,62 @@ func (c *machineController) machinesInMachineSet(machineSet *MachineSet) ([]*Mac
 // Machines and MachineSet as they are added, updated and deleted on
 // the cluster.
 func newMachineController(
+	dynamicclient dynamic.Interface,
 	kubeclient kubeclient.Interface,
 	clusterclient clusterclient.Interface,
 	enableMachineDeployments bool,
 ) (*machineController, error) {
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeclient, 0)
-	clusterInformerFactory := clusterinformers.NewSharedInformerFactory(clusterclient, 0)
+	informerFactory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(dynamicclient, 0, metav1.NamespaceAll, nil)
 
-	// var machineDeploymentInformer machineMachineDeploymentInformer
-	// if enableMachineDeployments {
-	// 	machineDeploymentInformer = clusterInformerFactory.Machine().V1beta1().MachineDeployments()
-	// 	machineDeploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
-	// }
+	machineDeploymentResource, _ := schema.ParseResourceArg("machinedeployments.v1beta1.machine.openshift.io")
 
-	// machineInformer := clusterInformerFactory.Machine().V1beta1().Machines()
-	// machineSetInformer := clusterInformerFactory.Machine().V1beta1().MachineSets()
+	machineSetResource, _ := schema.ParseResourceArg("machinesets.v1beta1.machine.openshift.io")
+	if machineSetResource == nil {
+		panic("MachineSetResource")
+	}
 
-	// machineInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
-	// machineSetInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
+	machineResource, _ := schema.ParseResourceArg("machines.v1beta1.machine.openshift.io")
+	if machineResource == nil {
+		panic("machineResource")
+	}
+	machineInformer := informerFactory.ForResource(*machineResource)
+	machineSetInformer := informerFactory.ForResource(*machineSetResource)
+	var machineDeploymentInformer informers.GenericInformer
+
+	handlers := cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			u := obj.(*unstructured.Unstructured)
+			logrus.WithFields(logrus.Fields{
+				"name":      u.GetName(),
+				"namespace": u.GetNamespace(),
+				"labels":    u.GetLabels(),
+			}).Infof("received add event: %+v", obj)
+		},
+		UpdateFunc: func(oldObj, obj interface{}) {
+			logrus.Infof("received update event: %+v", obj)
+		},
+		DeleteFunc: func(obj interface{}) {
+			logrus.Info("received update event!")
+		},
+	}
+
+	if enableMachineDeployments && machineDeploymentResource != nil {
+		machineDeploymentInformer = informerFactory.ForResource(*machineDeploymentResource)
+		machineDeploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
+	}
+
+	machineInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{})
+	machineSetInformer.Informer().AddEventHandler(handlers)
 
 	nodeInformer := kubeInformerFactory.Core().V1().Nodes().Informer()
 	nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{})
 
-	// if err := machineInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
-	// 	machineProviderIDIndex: indexMachineByProviderID,
-	// }); err != nil {
-	// 	return nil, fmt.Errorf("cannot add machine indexer: %v", err)
-	// }
+	if err := machineInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
+		machineProviderIDIndex: indexMachineByProviderID,
+	}); err != nil {
+		return nil, fmt.Errorf("cannot add machine indexer: %v", err)
+	}
 
 	if err := nodeInformer.GetIndexer().AddIndexers(cache.Indexers{
 		nodeProviderIDIndex: indexNodeByProviderID,
@@ -281,14 +697,15 @@ func newMachineController(
 	}
 
 	return &machineController{
-		clusterClientset:       clusterclient,
-		clusterInformerFactory: clusterInformerFactory,
-		kubeInformerFactory:    kubeInformerFactory,
-		// machineDeploymentInformer: machineDeploymentInformer,
-		// machineInformer:           machineInformer,
-		// machineSetInformer:        machineSetInformer,
-		nodeInformer:             nodeInformer,
-		enableMachineDeployments: enableMachineDeployments,
+		clusterClientset:          clusterclient,
+		kubeInformerFactory:       kubeInformerFactory,
+		machineInformerFactory:    informerFactory,
+		machineDeploymentInformer: machineDeploymentInformer,
+		machineInformer:           machineInformer,
+		machineSetInformer:        machineSetInformer,
+		nodeInformer:              nodeInformer,
+		enableMachineDeployments:  enableMachineDeployments,
+		dynamicclient:             dynamicclient,
 	}, nil
 }
 
@@ -490,18 +907,28 @@ func (c *machineController) findNodeByProviderID(providerID string) (*corev1.Nod
 
 	node, ok := objs[0].(*corev1.Node)
 	if !ok {
-		return nil, fmt.Errorf("internal error; unexpected type %T", node)
+		return nil, fmt.Errorf("internal error; unexpected type %T", objs[0])
 	}
 
 	return node.DeepCopy(), nil
 }
 
 func (c *machineController) listMachines(options labels.Selector) ([]*Machine, error) {
-	return nil, nil
+	var machines []*Machine
+	for _, x := range c.machineInformer.Informer().GetStore().List() {
+		u := x.(*unstructured.Unstructured).DeepCopy()
+		machines = append(machines, newMachineFromUnstructured(u))
+	}
+	return machines, nil
 }
 
 func (c *machineController) listMachineSets() ([]*MachineSet, error) {
-	return nil, nil
+	var machineSets []*MachineSet
+	for _, x := range c.machineSetInformer.Informer().GetStore().List() {
+		u := x.(*unstructured.Unstructured).DeepCopy()
+		machineSets = append(machineSets, newMachineSetFromUnstructured(u))
+	}
+	return machineSets, nil
 }
 
 func (c *machineController) listMachineDeployments() ([]*MachineDeployment, error) {
