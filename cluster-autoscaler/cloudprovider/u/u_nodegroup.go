@@ -18,12 +18,10 @@ package u
 
 import (
 	"fmt"
-	"time"
 
 	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/typed/machine/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
-	"k8s.io/klog"
 	schedulernodeinfo "k8s.io/kubernetes/pkg/scheduler/nodeinfo"
 )
 
@@ -119,28 +117,16 @@ func (ng *nodegroup) DeleteNodes(nodes []*corev1.Node) error {
 			return fmt.Errorf("unknown machine for node %q", node.Spec.ProviderID)
 		}
 
-		machine = machine.DeepCopy()
-
-		if machine.Annotations == nil {
-			machine.Annotations = map[string]string{}
-		}
-
-		machine.Annotations[machineDeleteAnnotationKey] = time.Now().String()
-		machine, err = ng.machineController.updateMachine(machine)
+		nodeGroup, err := ng.machineController.nodeGroupForNode(node)
 		if err != nil {
 			return err
 		}
 
+		if err := nodeGroup.scalableResource.MarkMachineForDeletion(machine); err != nil {
+			return err
+		}
+
 		if err := ng.scalableResource.SetSize(int32(replicas - 1)); err != nil {
-			delete(machine.Annotations, machineDeleteAnnotationKey)
-			// Log errors as warnings from Update()
-			// because no action is taken even if the
-			// annotation persists until the replica count
-			// is modified during a deletion.
-			_, updateErr := ng.machineController.updateMachine(machine)
-			if updateErr != nil {
-				klog.Warningf("failed to delete annotation %q from machine %q: %v", machineDeleteAnnotationKey, machine.Name, updateErr)
-			}
 			return err
 		}
 

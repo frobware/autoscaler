@@ -19,9 +19,11 @@ package u
 import (
 	"fmt"
 	"path"
+	"time"
 
 	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/typed/machine/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/utils/pointer"
 )
 
@@ -64,19 +66,50 @@ func (r machineSetScalableResource) Replicas() int32 {
 }
 
 func (r machineSetScalableResource) SetSize(nreplicas int32) error {
-	machineSet, err := r.machineapiClient.MachineSets(r.Namespace()).Get(r.Name(), metav1.GetOptions{})
+	u, err := r.controller.dynamicclient.Resource(*r.controller.machineSetResource).Namespace(r.machineSet.Namespace).Get(r.machineSet.Name, metav1.GetOptions{})
+
 	if err != nil {
-		return fmt.Errorf("unable to get MachineSet %q: %v", r.ID(), err)
+		return err
 	}
 
-	machineSet = machineSet.DeepCopy()
-	machineSet.Spec.Replicas = &nreplicas
-
-	_, err = r.machineapiClient.MachineSets(r.Namespace()).Update(machineSet)
-	if err != nil {
-		return fmt.Errorf("unable to update number of replicas of machineset %q: %v", r.ID(), err)
+	if u == nil {
+		return fmt.Errorf("unknown machineSet %s", r.machineSet.Name)
 	}
-	return nil
+
+	u = u.DeepCopy()
+	if err := unstructured.SetNestedField(u.Object, int64(nreplicas), "spec", "replicas"); err != nil {
+		return fmt.Errorf("failed to set replica value: %v", err)
+	}
+
+	_, updateErr := r.controller.dynamicclient.Resource(*r.controller.machineSetResource).Namespace(u.GetNamespace()).Update(u, metav1.UpdateOptions{})
+	return updateErr
+}
+
+func (r machineSetScalableResource) MarkMachineForDeletion(machine *Machine) error {
+	u, err := r.controller.dynamicclient.Resource(*r.controller.machineResource).Namespace(machine.Namespace).Get(machine.Name, metav1.GetOptions{})
+
+	if err != nil {
+		return err
+	}
+	if u == nil {
+		return fmt.Errorf("unknown machine %s", machine.Name)
+	}
+	// obj, err := r.controller.machineInformer.Lister().ByNamespace(machine.Namespace).Get(machine.Name)
+	// if err != nil {
+	// 	return err
+	// }
+
+	u = u.DeepCopy()
+
+	annotations := u.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[machineDeleteAnnotationKey] = time.Now().String()
+	u.SetAnnotations(annotations)
+
+	_, updateErr := r.controller.dynamicclient.Resource(*r.controller.machineResource).Namespace(u.GetNamespace()).Update(u, metav1.UpdateOptions{})
+	return updateErr
 }
 
 func newMachineSetScalableResource(controller *machineController, machineSet *MachineSet) (*machineSetScalableResource, error) {

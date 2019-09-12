@@ -94,6 +94,10 @@ func (r machineDeploymentScalableResource) SetSize(nreplicas int32) error {
 	return nil
 }
 
+func (r machineDeploymentScalableResource) MarkMachineForDeletion(machine *Machine) error {
+	return fmt.Errorf("TODO")
+}
+
 func newMachineDeploymentScalableResource(controller *machineController, machineDeployment *MachineDeployment) (*machineDeploymentScalableResource, error) {
 	minSize, maxSize, err := parseScalingBounds(machineDeployment.Annotations)
 	if err != nil {
