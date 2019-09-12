@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/typed/machine/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
@@ -29,7 +28,7 @@ import (
 type machineSetScalableResource struct {
 	machineapiClient machinev1beta1.MachineV1beta1Interface
 	controller       *machineController
-	machineSet       *v1beta1.MachineSet
+	machineSet       *MachineSet
 	maxSize          int
 	minSize          int
 }
@@ -80,7 +79,7 @@ func (r machineSetScalableResource) SetSize(nreplicas int32) error {
 	return nil
 }
 
-func newMachineSetScalableResource(controller *machineController, machineSet *v1beta1.MachineSet) (*machineSetScalableResource, error) {
+func newMachineSetScalableResource(controller *machineController, machineSet *MachineSet) (*machineSetScalableResource, error) {
 	minSize, maxSize, err := parseScalingBounds(machineSet.Annotations)
 	if err != nil {
 		return nil, fmt.Errorf("error validating min/max annotations: %v", err)

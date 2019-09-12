@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	machinev1beta1 "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/typed/machine/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
@@ -29,7 +28,7 @@ import (
 type machineDeploymentScalableResource struct {
 	machineapiClient  machinev1beta1.MachineV1beta1Interface
 	controller        *machineController
-	machineDeployment *v1beta1.MachineDeployment
+	machineDeployment *MachineDeployment
 	maxSize           int
 	minSize           int
 }
@@ -59,7 +58,7 @@ func (r machineDeploymentScalableResource) Namespace() string {
 func (r machineDeploymentScalableResource) Nodes() ([]string, error) {
 	result := []string{}
 
-	if err := r.controller.filterAllMachineSets(func(machineSet *v1beta1.MachineSet) error {
+	if err := r.controller.filterAllMachineSets(func(machineSet *MachineSet) error {
 		if machineSetIsOwnedByMachineDeployment(machineSet, r.machineDeployment) {
 			names, err := r.controller.machineSetNodeNames(machineSet)
 			if err != nil {
@@ -95,7 +94,7 @@ func (r machineDeploymentScalableResource) SetSize(nreplicas int32) error {
 	return nil
 }
 
-func newMachineDeploymentScalableResource(controller *machineController, machineDeployment *v1beta1.MachineDeployment) (*machineDeploymentScalableResource, error) {
+func newMachineDeploymentScalableResource(controller *machineController, machineDeployment *MachineDeployment) (*machineDeploymentScalableResource, error) {
 	minSize, maxSize, err := parseScalingBounds(machineDeployment.Annotations)
 	if err != nil {
 		return nil, fmt.Errorf("error validating min/max annotations: %v", err)
