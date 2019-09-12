@@ -24,7 +24,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	fakeclusterapi "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset/fake"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,9 +38,9 @@ type testControllerShutdownFunc func()
 
 type testConfig struct {
 	spec              *testSpec
-	machineDeployment *v1beta1.MachineDeployment
-	machineSet        *v1beta1.MachineSet
-	machines          []*v1beta1.Machine
+	machineDeployment *MachineDeployment
+	machineSet        *MachineSet
+	machines          []*Machine
 	nodes             []*corev1.Node
 }
 
@@ -132,10 +131,10 @@ func createTestConfigs(specs ...testSpec) []*testConfig {
 		config := &testConfig{
 			spec:     &specs[i],
 			nodes:    make([]*corev1.Node, spec.nodeCount),
-			machines: make([]*v1beta1.Machine, spec.nodeCount),
+			machines: make([]*Machine, spec.nodeCount),
 		}
 
-		config.machineSet = &v1beta1.MachineSet{
+		config.machineSet = &MachineSet{
 			TypeMeta: v1.TypeMeta{
 				Kind: "MachineSet",
 			},
@@ -150,7 +149,7 @@ func createTestConfigs(specs ...testSpec) []*testConfig {
 			config.machineSet.ObjectMeta.Annotations = spec.annotations
 			config.machineSet.Spec.Replicas = int32ptr(int32(spec.nodeCount))
 		} else {
-			config.machineDeployment = &v1beta1.MachineDeployment{
+			config.machineDeployment = &MachineDeployment{
 				TypeMeta: v1.TypeMeta{
 					Kind: "MachineDeployment",
 				},
@@ -160,7 +159,7 @@ func createTestConfigs(specs ...testSpec) []*testConfig {
 					UID:         types.UID(spec.machineDeploymentName),
 					Annotations: spec.annotations,
 				},
-				Spec: v1beta1.MachineDeploymentSpec{
+				Spec: MachineDeploymentSpec{
 					Replicas: int32ptr(int32(spec.nodeCount)),
 				},
 			}
@@ -192,7 +191,7 @@ func createTestConfigs(specs ...testSpec) []*testConfig {
 // makeLinkedNodeAndMachine creates a node and machine. The machine
 // has its NodeRef set to the new node and the new machine's owner
 // reference is set to owner.
-func makeLinkedNodeAndMachine(i int, namespace string, owner v1.OwnerReference) (*corev1.Node, *v1beta1.Machine) {
+func makeLinkedNodeAndMachine(i int, namespace string, owner v1.OwnerReference) (*corev1.Node, *Machine) {
 	node := &corev1.Node{
 		TypeMeta: v1.TypeMeta{
 			Kind: "Node",
@@ -208,7 +207,7 @@ func makeLinkedNodeAndMachine(i int, namespace string, owner v1.OwnerReference) 
 		},
 	}
 
-	machine := &v1beta1.Machine{
+	machine := &Machine{
 		TypeMeta: v1.TypeMeta{
 			Kind: "Machine",
 		},
@@ -221,10 +220,10 @@ func makeLinkedNodeAndMachine(i int, namespace string, owner v1.OwnerReference) 
 				UID:  owner.UID,
 			}},
 		},
-		Spec: v1beta1.MachineSpec{
+		Spec: MachineSpec{
 			ProviderID: pointer.StringPtr(fmt.Sprintf("%s-%s-nodeid-%d", namespace, owner.Name, i)),
 		},
-		Status: v1beta1.MachineStatus{
+		Status: MachineStatus{
 			NodeRef: &corev1.ObjectReference{
 				Kind: node.Kind,
 				Name: node.Name,
