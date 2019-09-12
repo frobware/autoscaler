@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"time"
 
-	clusterclient "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,7 +47,6 @@ const (
 // cluster. Additionally, it adds indices to the node informers to
 // satisfy lookup by node.Spec.ProviderID.
 type machineController struct {
-	clusterClientset          clusterclient.Interface
 	kubeInformerFactory       kubeinformers.SharedInformerFactory
 	machineInformerFactory    dynamicinformer.DynamicSharedInformerFactory
 	machineDeploymentInformer informers.GenericInformer
@@ -279,7 +277,6 @@ func (c *machineController) machinesInMachineSet(machineSet *MachineSet) ([]*Mac
 func newMachineController(
 	dynamicclient dynamic.Interface,
 	kubeclient kubeclient.Interface,
-	clusterclient clusterclient.Interface,
 	enableMachineDeployments bool,
 ) (*machineController, error) {
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeclient, 0)
@@ -341,7 +338,6 @@ func newMachineController(
 	}
 
 	return &machineController{
-		clusterClientset:          clusterclient,
 		kubeInformerFactory:       kubeInformerFactory,
 		machineInformerFactory:    informerFactory,
 		machineDeploymentInformer: machineDeploymentInformer,

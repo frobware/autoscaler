@@ -19,7 +19,6 @@ package u
 import (
 	"reflect"
 
-	clusterclientset "github.com/openshift/cluster-api/pkg/client/clientset_generated/clientset"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
@@ -138,13 +137,8 @@ func BuildOpenShiftMachineAPI(opts config.AutoscalingOptions, do cloudprovider.N
 		klog.Fatalf("create kube clientset failed: %v", err)
 	}
 
-	clusterclient, err := clusterclientset.NewForConfig(externalConfig)
-	if err != nil {
-		klog.Fatalf("create cluster clientset failed: %v", err)
-	}
-
 	enableMachineDeployments := false
-	controller, err := newMachineController(dc, kubeclient, clusterclient, enableMachineDeployments)
+	controller, err := newMachineController(dc, kubeclient, enableMachineDeployments)
 
 	if err != nil {
 		klog.Fatal(err)
