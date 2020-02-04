@@ -235,7 +235,7 @@ func createAutoscalingOptions() config.AutoscalingOptions {
 		Regional:                         *regional,
 		NewPodScaleUpDelay:               *newPodScaleUpDelay,
 		IgnoredTaints:                    *ignoreTaintsFlag,
-		KubeConfigPath:                      *kubeConfigFile,
+		KubeConfigPath:                   *kubeConfigFile,
 		NodeDeletionDelayTimeout:         *nodeDeletionDelayTimeout,
 		AWSUseStaticInstanceList:         *awsUseStaticInstanceList,
 	}
