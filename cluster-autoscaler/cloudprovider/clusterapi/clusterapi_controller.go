@@ -73,7 +73,7 @@ func indexMachineByProviderID(obj interface{}) ([]string, error) {
 		return nil, nil
 	}
 
-	return []string{providerID}, nil
+	return []string{string(normalizedProviderString(providerID))}, nil
 }
 
 func indexNodeByProviderID(obj interface{}) ([]string, error) {
@@ -191,8 +191,8 @@ func (c *machineController) run(stopCh <-chan struct{}) error {
 
 // findMachineByProviderID finds machine matching providerID. A
 // DeepCopy() of the object is returned on success.
-func (c *machineController) findMachineByProviderID(providerID string) (*Machine, error) {
-	objs, err := c.machineInformer.Informer().GetIndexer().ByIndex(machineProviderIDIndex, providerID)
+func (c *machineController) findMachineByProviderID(providerID normalizedProviderID) (*Machine, error) {
+	objs, err := c.machineInformer.Informer().GetIndexer().ByIndex(machineProviderIDIndex, string(providerID))
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +447,7 @@ func (c *machineController) nodeGroups() ([]*nodegroup, error) {
 }
 
 func (c *machineController) nodeGroupForNode(node *corev1.Node) (*nodegroup, error) {
-	machine, err := c.findMachineByProviderID(node.Spec.ProviderID)
+	machine, err := c.findMachineByProviderID(normalizedProviderString(node.Spec.ProviderID))
 	if err != nil {
 		return nil, err
 	}
@@ -504,8 +504,8 @@ func (c *machineController) nodeGroupForNode(node *corev1.Node) (*nodegroup, err
 // findNodeByProviderID find the Node object keyed by provideID.
 // Returns nil if it cannot be found. A DeepCopy() of the object is
 // returned on success.
-func (c *machineController) findNodeByProviderID(providerID string) (*corev1.Node, error) {
-	objs, err := c.nodeInformer.GetIndexer().ByIndex(nodeProviderIDIndex, providerID)
+func (c *machineController) findNodeByProviderID(providerID normalizedProviderID) (*corev1.Node, error) {
+	objs, err := c.nodeInformer.GetIndexer().ByIndex(nodeProviderIDIndex, string(providerID))
 	if err != nil {
 		return nil, err
 	}
