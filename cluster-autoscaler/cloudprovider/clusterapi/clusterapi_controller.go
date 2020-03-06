@@ -79,7 +79,7 @@ func indexMachineByProviderID(obj interface{}) ([]string, error) {
 func indexNodeByProviderID(obj interface{}) ([]string, error) {
 	if node, ok := obj.(*corev1.Node); ok {
 		if node.Spec.ProviderID != "" {
-			return []string{node.Spec.ProviderID}, nil
+			return []string{string(normalizedProviderString(node.Spec.ProviderID))}, nil
 		}
 		return []string{}, nil
 	}

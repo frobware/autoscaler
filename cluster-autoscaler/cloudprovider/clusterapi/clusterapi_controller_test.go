@@ -205,7 +205,7 @@ func makeLinkedNodeAndMachine(i int, namespace string, owner v1.OwnerReference) 
 			},
 		},
 		Spec: corev1.NodeSpec{
-			ProviderID: fmt.Sprintf("%s-%s-nodeid-%d", namespace, owner.Name, i),
+			ProviderID: fmt.Sprintf("test:////%s-%s-nodeid-%d", namespace, owner.Name, i),
 		},
 	}
 
@@ -224,7 +224,7 @@ func makeLinkedNodeAndMachine(i int, namespace string, owner v1.OwnerReference) 
 			}},
 		},
 		Spec: MachineSpec{
-			ProviderID: pointer.StringPtr(fmt.Sprintf("%s-%s-nodeid-%d", namespace, owner.Name, i)),
+			ProviderID: pointer.StringPtr(fmt.Sprintf("test:////%s-%s-nodeid-%d", namespace, owner.Name, i)),
 		},
 		Status: MachineStatus{
 			NodeRef: &corev1.ObjectReference{
@@ -938,7 +938,7 @@ func TestControllerMachineSetNodeNamesUsingProviderID(t *testing.T) {
 	})
 
 	for i := range testConfig.nodes {
-		if nodeNames[i].Id != testConfig.nodes[i].Spec.ProviderID {
+		if nodeNames[i].Id != string(normalizedProviderString(testConfig.nodes[i].Spec.ProviderID)) {
 			t.Fatalf("expected %q, got %q", testConfig.nodes[i].Spec.ProviderID, nodeNames[i].Id)
 		}
 	}
@@ -986,7 +986,7 @@ func TestControllerMachineSetNodeNamesUsingStatusNodeRefName(t *testing.T) {
 	})
 
 	for i := range testConfig.nodes {
-		if nodeNames[i].Id != testConfig.nodes[i].Spec.ProviderID {
+		if nodeNames[i].Id != string(normalizedProviderString(testConfig.nodes[i].Spec.ProviderID)) {
 			t.Fatalf("expected %q, got %q", testConfig.nodes[i].Spec.ProviderID, nodeNames[i].Id)
 		}
 	}
